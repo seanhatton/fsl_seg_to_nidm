@@ -6,7 +6,7 @@
 #  License: GPL
 #**************************************************************************************
 #**************************************************************************************
-# Date: June 6, 2019                 Coded by: Brainhack'ers
+# Date: 19 Sep 2019                Coded by: Brainhack'ers
 # Filename: fsl_seg_to_nidm.py
 #
 # Program description:  This program will load in JSON output from FSL's FAST/FIRST
@@ -25,7 +25,7 @@
 # Start date: June 6, 2019
 # Update history:
 # DATE            MODIFICATION				Who
-#
+# 19 Sep 2019     Added support for adding to existing NIDM file and for forcing addition of subject agent if not found in NIDM file.  SNH
 #
 #**************************************************************************************
 # Programmer comments:
@@ -122,9 +122,6 @@ def add_seg_data(nidmdoc,subjid,fs_stats_entity_id, add_to_nidm=False, forceagen
     nidmdoc.add((association_bnode,Constants.PROV['hadRole'],Constants.NIDM_NEUROIMAGING_ANALYSIS_SOFTWARE))
     nidmdoc.add((association_bnode,Constants.PROV['agent'],software_agent))
 
-    # Initialize participant_agent to None to prevent UnboundLocalError
-    participant_agent = None
-
     if not add_to_nidm:
 
         # create a new agent for subjid
@@ -180,14 +177,14 @@ def add_seg_data(nidmdoc,subjid,fs_stats_entity_id, add_to_nidm=False, forceagen
                             print('Found subject ID after stripping zeros: %s in NIDM file (agent: %s)' %(subjid.lstrip('0'),row[0]))
                             participant_agent = row[0]
                 #######################################################################################
-                if (forceagent is not False) and (len(qres2) == 0):
+                if (forceagent is not False) and (len(qres2)==0):
                     print('Explicitly creating agent in existing NIDM file...')
                     participant_agent = niiri[getUUID()]
                     nidmdoc.add((participant_agent,RDF.type,Constants.PROV['Agent']))
                     nidmdoc.add((participant_agent,URIRef(Constants.NIDM_SUBJECTID.uri),Literal(subjid, datatype=XSD.string)))
-                elif (forceagent is False) and (len(qres) == 0) and (len(qres2) == 0):
+                elif (forceagent is False) and (len(qres)==0) and (len(qres2)==0):
                     print('Not explicitly adding agent to NIDM file, no output written')
-                    exit()
+                    return
             else:
                  for row in qres:
                     print('Found subject ID: %s in NIDM file (agent: %s)' %(subjid,row[0]))
@@ -223,17 +220,17 @@ def test_connection(remote=False):
     """helper function to test whether an internet connection exists.
     Used for preventing timeout errors when scraping interlex."""
     import socket
-    remote_server = 'www.google.com'
+    remote_server = 'www.google.com' if not remote else remote # TODO: maybe improve for China
     try:
-        # Resolve hostname using getaddrinfo (supports both IPv4 and IPv6)
-        addr_info = socket.getaddrinfo(remote_server, 80, socket.AF_UNSPEC)
-        host = addr_info[0][4][0]
-        # can we establish a connection to the host?
+        # does the host name resolve?
+        host = socket.gethostbyname(remote_server)
+        # can we establish a connection to the host name?
         con = socket.create_connection((host, 80), 2)
         return True
     except:
         print("Can't connect to a server...")
-        return False
+        pass
+    return False
 
 
 
