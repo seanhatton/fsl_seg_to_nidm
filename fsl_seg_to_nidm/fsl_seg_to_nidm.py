@@ -130,9 +130,10 @@ def add_seg_data(nidmdoc,subjid,fs_stats_entity_id, add_to_nidm=False, forceagen
         nidmdoc.add((participant_agent,URIRef(Constants.NIDM_SUBJECTID.uri),Literal(subjid, datatype=XSD.string)))
 
     else:
+        participant_agent = None  # Initialize to ensure it's defined before use
         # query to get agent id for subjid
         #find subject ids and sessions in NIDM document
-            query = """
+        query = """
                     PREFIX ndar:<https://ndar.nih.gov/api/datadictionary/v2/dataelement/>
                     PREFIX rdf:<http://www.w3.org/1999/02/22-rdf-syntax-ns#>
                     PREFIX prov:<http://www.w3.org/ns/prov#>
@@ -146,49 +147,53 @@ def add_seg_data(nidmdoc,subjid,fs_stats_entity_id, add_to_nidm=False, forceagen
 
                     }""" % subjid
             #print(query)
-            qres = nidmdoc.query(query)
-            if len(qres) == 0:
-                print('Subject ID (%s) was not found in existing NIDM file...' %subjid)
-                ##############################################################################
-                # added to account for issues with some BIDS datasets that have leading 00's in subject directories
-                # but not in participants.tsv files.
-                qres2 = []
-                if (len(subjid) - len(subjid.lstrip('0'))) != 0:
-                    print('Trying to find subject ID without leading zeros....')
-                    query = """
-                        PREFIX ndar:<https://ndar.nih.gov/api/datadictionary/v2/dataelement/>
-                        PREFIX rdf:<http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-                        PREFIX prov:<http://www.w3.org/ns/prov#>
-                        PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+        qres = nidmdoc.query(query)
+        if len(qres) == 0:
+            print('Subject ID (%s) was not found in existing NIDM file...' %subjid)
+            ##############################################################################
+            # added to account for issues with some BIDS datasets that have leading 00's in subject directories
+            # but not in participants.tsv files.
+            qres2 = []
+            if (len(subjid) - len(subjid.lstrip('0'))) != 0:
+                print('Trying to find subject ID without leading zeros....')
+                query = """
+                    PREFIX ndar:<https://ndar.nih.gov/api/datadictionary/v2/dataelement/>
+                    PREFIX rdf:<http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+                    PREFIX prov:<http://www.w3.org/ns/prov#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 
-                        select distinct ?agent
-                        where {
+                    select distinct ?agent
+                    where {
 
-                            ?agent rdf:type prov:Agent ;
-                            ndar:src_subject_id \"%s\"^^xsd:string .
+                        ?agent rdf:type prov:Agent ;
+                        ndar:src_subject_id \"%s\"^^xsd:string .
 
-                        }""" % subjid.lstrip('0')
-                    #print(query)
-                    qres2 = nidmdoc.query(query)
-                    if len(qres2) == 0:
-                        print("Still can't find subject id after stripping leading zeros...")
-                    else:
-                        for row in qres2:
-                            print('Found subject ID after stripping zeros: %s in NIDM file (agent: %s)' %(subjid.lstrip('0'),row[0]))
-                            participant_agent = row[0]
-                #######################################################################################
-                if (forceagent is not False) and (len(qres2)==0):
-                    print('Explicitly creating agent in existing NIDM file...')
-                    participant_agent = niiri[getUUID()]
-                    nidmdoc.add((participant_agent,RDF.type,Constants.PROV['Agent']))
-                    nidmdoc.add((participant_agent,URIRef(Constants.NIDM_SUBJECTID.uri),Literal(subjid, datatype=XSD.string)))
-                elif (forceagent is False) and (len(qres)==0) and (len(qres2)==0):
-                    print('Not explicitly adding agent to NIDM file, no output written')
-                    return
-            else:
-                 for row in qres:
-                    print('Found subject ID: %s in NIDM file (agent: %s)' %(subjid,row[0]))
-                    participant_agent = row[0]
+                    }""" % subjid.lstrip('0')
+                #print(query)
+                qres2 = nidmdoc.query(query)
+                if len(qres2) == 0:
+                    print("Still can't find subject id after stripping leading zeros...")
+                else:
+                    for row in qres2:
+                        print('Found subject ID after stripping zeros: %s in NIDM file (agent: %s)' %(subjid.lstrip('0'),row[0]))
+                        participant_agent = row[0]
+            #######################################################################################
+            if (forceagent is not False) and (len(qres2)==0):
+                print('Explicitly creating agent in existing NIDM file...')
+                participant_agent = niiri[getUUID()]
+                nidmdoc.add((participant_agent,RDF.type,Constants.PROV['Agent']))
+                nidmdoc.add((participant_agent,URIRef(Constants.NIDM_SUBJECTID.uri),Literal(subjid, datatype=XSD.string)))
+            elif (forceagent is False) and (len(qres)==0) and (len(qres2)==0):
+                print('Not explicitly adding agent to NIDM file, no output written')
+                return
+        else:
+            for row in qres:
+                print('Found subject ID: %s in NIDM file (agent: %s)' %(subjid,row[0]))
+                participant_agent = row[0]
+
+    # Verify participant_agent was assigned before use
+    if participant_agent is None:
+        raise ValueError("participant_agent could not be determined for subject ID: %s" % subjid)
 
     #create a blank node and qualified association with prov:Agent for participant
     association_bnode = BNode()
@@ -216,21 +221,20 @@ def add_seg_data(nidmdoc,subjid,fs_stats_entity_id, add_to_nidm=False, forceagen
     for row in qres:
         nidmdoc.add((software_activity, Constants.DCT["isPartOf"], row['project']))
 
-def test_connection(remote=False):
+def test_connection(remote=None):
     """helper function to test whether an internet connection exists.
     Used for preventing timeout errors when scraping interlex."""
     import socket
-    remote_server = 'www.google.com' if not remote else remote # TODO: maybe improve for China
+    # Test against Google DNS on port 53 (commonly reachable) instead of web server
+    test_host = remote if remote else '8.8.8.8'  # TODO: maybe improve for China
+    test_port = 53 if remote is None else 80  # Port 53 for DNS, 80 for HTTP servers
     try:
-        # does the host name resolve?
-        host = socket.gethostbyname(remote_server)
-        # can we establish a connection to the host name?
-        con = socket.create_connection((host, 80), 2)
+        con = socket.create_connection((test_host, test_port), timeout=2)
+        con.close()
         return True
-    except:
-        print("Can't connect to a server...")
-        pass
-    return False
+    except (socket.gaierror, socket.timeout, OSError):
+        print("Can't connect to server %s:%d" % (test_host, test_port))
+        return False
 
 
 
